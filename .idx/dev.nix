@@ -61,7 +61,7 @@
       # =========================
       # Clone noVNC
       # =========================
-      if [ ! -d "$NOVNC_DIR" ]; then
+      if [ -d "$NOVNC_DIR" ]; then
         git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
       fi
 
