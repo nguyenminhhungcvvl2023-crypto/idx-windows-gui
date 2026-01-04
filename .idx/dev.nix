@@ -144,11 +144,9 @@
   idx.previews = {
     enable = true;
     previews = {
-      qemu = {
-        manager = "web";
-        command = [
-          "bash" "-lc"
-          "echo 'noVNC running on port 8888'"
+      terminal = {
+        manager = "terminal";
+        command = [ "bash" ];
         ];
       };
     };
