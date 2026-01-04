@@ -3,8 +3,6 @@
 
   packages = [
     pkgs.qemu
-    pkgs.ovmf.fdCode
-    pkgs.ovmf.fdVars
     pkgs.htop
     pkgs.cloudflared
     pkgs.coreutils
