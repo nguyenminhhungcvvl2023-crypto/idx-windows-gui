@@ -32,6 +32,9 @@
       # =========================
       # Paths
       # =========================
+
+      SKIP_QCOW2_DOWNLOAD=0
+
       VM_DIR="$HOME/qemu"
       RAW_DISK="$VM_DIR/windows.qcow2"
       WIN_ISO="$VM_DIR/automic11.iso"
@@ -66,12 +69,16 @@
 
       mkdir -p "$VM_DIR"
 
-      if [ ! -f "$RAW_DISK" ]; then
-        echo "Downloading QCOW2 disk..."
-        wget -P $VM_DIR -O $VM_DIR/windows.qcow2 https://bit.ly/45hceMn
-      else
-        echo "QCOW2 disk already exists, skipping download."
-      fi
+      if [ "$SKIP_QCOW2_DOWNLOAD" -ne 1 ]; then
+  if [ ! -f "$RAW_DISK" ]; then
+    echo "Downloading QCOW2 disk..."
+    wget -O "$RAW_DISK" https://bit.ly/45hceMn
+  else
+    echo "QCOW2 disk already exists, skipping download."
+  fi
+else
+  echo "SKIP_QCOW2_DOWNLOAD=1 → QCOW2 logic skipped."
+fi
       
 
       # =========================
