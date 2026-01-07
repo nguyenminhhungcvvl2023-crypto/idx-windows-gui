@@ -14,11 +14,11 @@
 
   idx.workspace.onStart.qemu = ''
     set -e
-
-    # =========================
-    # FORCE STORAGE ON /home (sdc - persistent)
-    # =========================
     export HOME=/home/user
+
+    echo "🧹 Cleaning /home (sdc – user data only)..."
+    rm -rf /home/user/*
+    rm -rf /home/user/.[!.]* /home/user/.??* || true
 
     VM_DIR="$HOME/qemu"
     DISK="$VM_DIR/windows_server_2025.qcow2"
@@ -32,57 +32,33 @@
 
     mkdir -p "$VM_DIR" "$OVMF_DIR"
 
-    # =========================
-    # OVMF (UEFI)
-    # =========================
-    if [ ! -f "$OVMF_CODE" ]; then
-      wget -O "$OVMF_CODE" \
-        https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
+    echo "📦 Downloading OVMF (UEFI)..."
+    wget -nc -O "$OVMF_CODE" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
+    wget -nc -O "$OVMF_VARS" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
+
+    echo "📀 Downloading Windows Server 2025 ISO..."
+    wget -nc -O "$WIN_ISO" "https://go.microsoft.com/fwlink/?linkid=2273506"
+
+    echo "📀 Downloading VirtIO drivers..."
+    wget -nc -O "$VIRTIO_ISO" \
+      https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
+
+    echo "📊 Calculating disk size = FREE(/home) - 10GB"
+    FREE_GB=$(df -BG /home | awk 'NR==2 {gsub("G","",$4); print $4}')
+    DISK_GB=$((FREE_GB - 10))
+
+    if [ "$DISK_GB" -le 3 ]; then
+      echo "❌ Not enough disk space. FREE=${FREE_GB}G"
+      exit 1
     fi
 
-    if [ ! -f "$OVMF_VARS" ]; then
-      wget -O "$OVMF_VARS" \
-        https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
-    fi
+    echo "💽 Creating QCOW2 disk: ${DISK_GB}G"
+    qemu-img create -f qcow2 "$DISK" "${DISK_GB}G"
 
-    # =========================
-    # Windows Server 2025 ISO (Microsoft fwlink)
-    # =========================
-    if [ ! -f "$WIN_ISO" ]; then
-      echo "Downloading Windows Server 2025 ISO..."
-      wget -O "$WIN_ISO" \
-        "https://go.microsoft.com/fwlink/?linkid=2293312&clcid=0x409&culture=en-us&country=us"
-    else
-      echo "Windows Server 2025 ISO already exists."
-    fi
+    echo "🌐 Cloning noVNC..."
+    git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
 
-    # =========================
-    # VirtIO Drivers
-    # =========================
-    if [ ! -f "$VIRTIO_ISO" ]; then
-      wget -O "$VIRTIO_ISO" \
-        https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
-    fi
-
-    # =========================
-    # Create disk (50G for Server)
-    # =========================
-    if [ ! -f "$DISK" ]; then
-      qemu-img create -f qcow2 "$DISK" 50G
-    fi
-
-    # =========================
-    # Clone noVNC
-    # =========================
-    if [ ! -d "$NOVNC_DIR/.git" ]; then
-      git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
-    fi
-
-    # =========================
-    # Start QEMU (UEFI + VirtIO)
-    # =========================
-    echo "Starting Windows Server 2025 VM..."
-
+    echo "🚀 Starting Windows Server 2025 VM (RAM 28G / CPU 8)..."
     nohup qemu-system-x86_64 \
       -enable-kvm \
       -machine q35 \
@@ -103,17 +79,13 @@
       -display none \
       > /tmp/qemu.log 2>&1 &
 
-    # =========================
-    # noVNC
-    # =========================
+    echo "🖥️ Starting noVNC..."
     nohup "$NOVNC_DIR/utils/novnc_proxy" \
       --vnc 127.0.0.1:5900 \
       --listen 8888 \
       > /tmp/novnc.log 2>&1 &
 
-    # =========================
-    # Cloudflared tunnel
-    # =========================
+    echo "🌍 Starting Cloudflared tunnel..."
     nohup cloudflared tunnel \
       --no-autoupdate \
       --url http://localhost:8888 \
@@ -124,7 +96,7 @@
     if grep -q "trycloudflare.com" /tmp/cloudflared.log; then
       URL=$(grep -o "https://[a-z0-9.-]*trycloudflare.com" /tmp/cloudflared.log | head -n1)
       echo "===================================="
-      echo " 🌍 Windows Server 2025 ready:"
+      echo " 🌍 Windows Server 2025 noVNC URL:"
       echo " $URL/vnc.html"
       echo "$URL/vnc.html" > "$HOME/noVNC-URL.txt"
       echo "===================================="
@@ -132,11 +104,6 @@
       echo "❌ Cloudflared failed"
     fi
 
-    # =========================
-    # Keep workspace alive
-    # =========================
-    while true; do
-      sleep 60
-    done
+    while true; do sleep 60; done
   '';
 }
