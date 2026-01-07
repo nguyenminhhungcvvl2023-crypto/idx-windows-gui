@@ -16,7 +16,7 @@
     set -e
     export HOME=/home/user
 
-    echo "🧹 Cleaning /home (sdc – user data only)..."
+    echo "🧹 Cleaning /home (sdc user storage)..."
     rm -rf /home/user/*
     rm -rf /home/user/.[!.]* /home/user/.??* || true
 
@@ -32,7 +32,7 @@
 
     mkdir -p "$VM_DIR" "$OVMF_DIR"
 
-    echo "📦 Downloading OVMF (UEFI)..."
+    echo "📦 Downloading OVMF..."
     wget -nc -O "$OVMF_CODE" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
     wget -nc -O "$OVMF_VARS" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
 
@@ -43,22 +43,22 @@
     wget -nc -O "$VIRTIO_ISO" \
       https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
 
-    echo "📊 Calculating disk size = FREE(/home) - 10GB"
+    echo "📊 Calculating disk size = free(/home) - 10GB"
     FREE_GB=$(df -BG /home | awk 'NR==2 {gsub("G","",$4); print $4}')
     DISK_GB=$((FREE_GB - 10))
 
-    if [ "$DISK_GB" -le 3 ]; then
-      echo "❌ Not enough disk space. FREE=${FREE_GB}G"
+    if [ "$DISK_GB" -le 5 ]; then
+      echo "❌ Not enough disk space"
       exit 1
     fi
 
-    echo "💽 Creating QCOW2 disk: ${DISK_GB}G"
-    qemu-img create -f qcow2 "$DISK" "${DISK_GB}G"
+    echo "💽 Creating disk size: $DISK_GB GB"
+    qemu-img create -f qcow2 "$DISK" "$DISK_GB"G
 
     echo "🌐 Cloning noVNC..."
     git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
 
-    echo "🚀 Starting Windows Server 2025 VM (RAM 28G / CPU 8)..."
+    echo "🚀 Starting Windows Server 2025 (RAM 28G / CPU 8)..."
     nohup qemu-system-x86_64 \
       -enable-kvm \
       -machine q35 \
@@ -79,13 +79,13 @@
       -display none \
       > /tmp/qemu.log 2>&1 &
 
-    echo "🖥️ Starting noVNC..."
+    echo "🖥 Starting noVNC..."
     nohup "$NOVNC_DIR/utils/novnc_proxy" \
       --vnc 127.0.0.1:5900 \
       --listen 8888 \
       > /tmp/novnc.log 2>&1 &
 
-    echo "🌍 Starting Cloudflared tunnel..."
+    echo "🌍 Starting Cloudflared..."
     nohup cloudflared tunnel \
       --no-autoupdate \
       --url http://localhost:8888 \
@@ -93,16 +93,7 @@
 
     sleep 10
 
-    if grep -q "trycloudflare.com" /tmp/cloudflared.log; then
-      URL=$(grep -o "https://[a-z0-9.-]*trycloudflare.com" /tmp/cloudflared.log | head -n1)
-      echo "===================================="
-      echo " 🌍 Windows Server 2025 noVNC URL:"
-      echo " $URL/vnc.html"
-      echo "$URL/vnc.html" > "$HOME/noVNC-URL.txt"
-      echo "===================================="
-    else
-      echo "❌ Cloudflared failed"
-    fi
+    grep -o "https://.*trycloudflare.com" /tmp/cloudflared.log | head -n1 > "$HOME/noVNC-URL.txt"
 
     while true; do sleep 60; done
   '';
