@@ -15,10 +15,10 @@
   idx.workspace.onStart.qemu = ''
     set -e
     export HOME=/home/user
+    cd "$HOME"
 
-    echo "🧹 Cleaning /home (sdc)..."
-    rm -rf /home/user/*
-    rm -rf /home/user/.[!.]* /home/user/.??* || true
+    echo "🧹 Cleaning VM folders only..."
+    rm -rf "$HOME/qemu" "$HOME/noVNC"
 
     VM_DIR="$HOME/qemu"
     DISK="$VM_DIR/ws2025.qcow2"
@@ -32,37 +32,25 @@
 
     mkdir -p "$VM_DIR" "$OVMF_DIR"
 
-    echo "📦 OVMF (UEFI)"
-    wget -nc -O "$OVMF_CODE" \
-      https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
-    wget -nc -O "$OVMF_VARS" \
-      https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
+    wget -nc -O "$OVMF_CODE" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
+    wget -nc -O "$OVMF_VARS" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
 
-    echo "📀 Windows Server 2025 ISO"
-    wget -nc -O "$WIN_ISO" \
-      "https://go.microsoft.com/fwlink/?linkid=2273506"
-
-    echo "📀 VirtIO Drivers"
+    wget -nc -O "$WIN_ISO" "https://go.microsoft.com/fwlink/?linkid=2273506"
     wget -nc -O "$VIRTIO_ISO" \
       https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
 
-    echo "💽 Create disk 6GB (FIXED)"
     qemu-img create -f qcow2 "$DISK" 6G
 
-    echo "🌐 Clone noVNC"
     git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
 
-    echo "🚀 Start Windows Server 2025"
     nohup qemu-system-x86_64 \
       -enable-kvm \
       -machine q35 \
       -cpu host \
       -smp 8 \
       -m 28672 \
-      -device virtio-balloon-pci \
-      -device virtio-rng-pci \
       -vga virtio \
-      -netdev user,id=n0,hostfwd=tcp::3389-:3389 \
+      -netdev user,id=n0 \
       -device virtio-net-pci,netdev=n0 \
       -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
       -drive if=pflash,format=raw,file="$OVMF_VARS" \
@@ -73,13 +61,11 @@
       -display none \
       > /tmp/qemu.log 2>&1 &
 
-    echo "🖥 noVNC"
     nohup "$NOVNC_DIR/utils/novnc_proxy" \
       --vnc 127.0.0.1:5900 \
       --listen 8888 \
       > /tmp/novnc.log 2>&1 &
 
-    echo "🌍 Cloudflared"
     nohup cloudflared tunnel \
       --no-autoupdate \
       --url http://localhost:8888 \
