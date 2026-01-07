@@ -16,13 +16,13 @@
     set -e
 
     # =========================
-    # FORCE STORAGE ON /home (sdc)
+    # FORCE STORAGE ON /home (sdc - persistent)
     # =========================
     export HOME=/home/user
 
     VM_DIR="$HOME/qemu"
-    DISK="$VM_DIR/win-server-2025.qcow2"
-    WIN_ISO="$VM_DIR/win-server-2025.iso"
+    DISK="$VM_DIR/windows_server_2025.qcow2"
+    WIN_ISO="$VM_DIR/windows_server_2025.iso"
     VIRTIO_ISO="$VM_DIR/virtio-win.iso"
     NOVNC_DIR="$HOME/noVNC"
 
@@ -33,46 +33,62 @@
     mkdir -p "$VM_DIR" "$OVMF_DIR"
 
     # =========================
-    # OVMF
+    # OVMF (UEFI)
     # =========================
-    [ ! -f "$OVMF_CODE" ] && wget -O "$OVMF_CODE" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
-    [ ! -f "$OVMF_VARS" ] && wget -O "$OVMF_VARS" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
+    if [ ! -f "$OVMF_CODE" ]; then
+      wget -O "$OVMF_CODE" \
+        https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
+    fi
 
-    # =========================
-    # Windows Server 2025 ISO
-    # =========================
-    if [ ! -f "$WIN_ISO" ]; then
-      echo "Download Windows Server 2025 ISO..."
-      wget -O "$WIN_ISO" https://YOUR_WINDOWS_SERVER_2025_ISO_LINK.iso
+    if [ ! -f "$OVMF_VARS" ]; then
+      wget -O "$OVMF_VARS" \
+        https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
     fi
 
     # =========================
-    # VirtIO
+    # Windows Server 2025 ISO (Microsoft fwlink)
     # =========================
-    [ ! -f "$VIRTIO_ISO" ] && \
-      wget -O "$VIRTIO_ISO" https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
+    if [ ! -f "$WIN_ISO" ]; then
+      echo "Downloading Windows Server 2025 ISO..."
+      wget -O "$WIN_ISO" \
+        "https://go.microsoft.com/fwlink/?linkid=2293312&clcid=0x409&culture=en-us&country=us"
+    else
+      echo "Windows Server 2025 ISO already exists."
+    fi
 
     # =========================
-    # Disk 40G
+    # VirtIO Drivers
     # =========================
-    [ ! -f "$DISK" ] && qemu-img create -f qcow2 "$DISK" 40G
+    if [ ! -f "$VIRTIO_ISO" ]; then
+      wget -O "$VIRTIO_ISO" \
+        https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
+    fi
 
     # =========================
-    # noVNC
+    # Create disk (50G for Server)
+    # =========================
+    if [ ! -f "$DISK" ]; then
+      qemu-img create -f qcow2 "$DISK" 50G
+    fi
+
+    # =========================
+    # Clone noVNC
     # =========================
     if [ ! -d "$NOVNC_DIR/.git" ]; then
       git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
     fi
 
     # =========================
-    # START QEMU
+    # Start QEMU (UEFI + VirtIO)
     # =========================
+    echo "Starting Windows Server 2025 VM..."
+
     nohup qemu-system-x86_64 \
       -enable-kvm \
+      -machine q35 \
       -cpu host \
       -smp 8 \
       -m 28672 \
-      -machine q35 \
       -device virtio-balloon-pci \
       -device virtio-rng-pci \
       -vga virtio \
@@ -83,18 +99,44 @@
       -drive file="$DISK",if=virtio,format=qcow2 \
       -cdrom "$WIN_ISO" \
       -drive file="$VIRTIO_ISO",media=cdrom \
-      -vnc :0 -display none \
+      -vnc :0 \
+      -display none \
       > /tmp/qemu.log 2>&1 &
 
     # =========================
-    # noVNC + Cloudflare
+    # noVNC
     # =========================
-    nohup "$NOVNC_DIR/utils/novnc_proxy" --vnc localhost:5900 --listen 8888 &
-    nohup cloudflared tunnel --no-autoupdate --url http://localhost:8888 > /tmp/cloudflared.log &
+    nohup "$NOVNC_DIR/utils/novnc_proxy" \
+      --vnc 127.0.0.1:5900 \
+      --listen 8888 \
+      > /tmp/novnc.log 2>&1 &
+
+    # =========================
+    # Cloudflared tunnel
+    # =========================
+    nohup cloudflared tunnel \
+      --no-autoupdate \
+      --url http://localhost:8888 \
+      > /tmp/cloudflared.log 2>&1 &
 
     sleep 10
-    grep -o "https://.*trycloudflare.com" /tmp/cloudflared.log | head -n1 > "$HOME/noVNC-URL.txt"
 
-    while true; do sleep 60; done
+    if grep -q "trycloudflare.com" /tmp/cloudflared.log; then
+      URL=$(grep -o "https://[a-z0-9.-]*trycloudflare.com" /tmp/cloudflared.log | head -n1)
+      echo "===================================="
+      echo " 🌍 Windows Server 2025 ready:"
+      echo " $URL/vnc.html"
+      echo "$URL/vnc.html" > "$HOME/noVNC-URL.txt"
+      echo "===================================="
+    else
+      echo "❌ Cloudflared failed"
+    fi
+
+    # =========================
+    # Keep workspace alive
+    # =========================
+    while true; do
+      sleep 60
+    done
   '';
 }
