@@ -19,52 +19,39 @@
       set -e
 
       # =========================
-      # One-time cleanup
-      # =========================
-      if [ ! -f /home/user/.cleanup_done ]; then
-        rm -rf /home/user/.gradle/* /home/user/.emu/* || true
-        find /home/user -mindepth 1 -maxdepth 1 \
-          ! -name 'idx-windows-gui' \
-          ! -name '.cleanup_done' \
-          ! -name '.*' \
-          -exec rm -rf {} + || true
-        touch /home/user/.cleanup_done
-      fi
-
-      # =========================
       # Paths
       # =========================
       VM_DIR="$HOME/qemu"
       RAW_DISK="$VM_DIR/windows.qcow2"
-      WIN_ISO="$VM_DIR/tiny11.iso"
+      WIN_ISO="$VM_DIR/tiny11_25H2_Oct25.iso"  # ISO 5.4GB
       VIRTIO_ISO="$VM_DIR/virtio-win.iso"
       NOVNC_DIR="$HOME/noVNC"
       OVMF_DIR="$VM_DIR/ovmf"
       OVMF_CODE="$OVMF_DIR/OVMF_CODE.fd"
       OVMF_VARS="$OVMF_DIR/OVMF_VARS.fd"
 
-      DESIRED_QCOW2_SIZE=13G  # QCOW2 + Tiny11 + ISO ≤16GB
-
       mkdir -p "$VM_DIR" "$OVMF_DIR"
 
+      QCOW2_SIZE="9G"  # tổng ổ 16GB → QCOW2 nhỏ hơn ISO
+
       # =========================
-      # Download OVMF firmware
+      # Download OVMF firmware if missing
       # =========================
       [ -f "$OVMF_CODE" ] || wget -O "$OVMF_CODE" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
       [ -f "$OVMF_VARS" ] || wget -O "$OVMF_VARS" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
 
       # =========================
-      # Download Tiny11 ISO (~2GB)
+      # Download Tiny11 ISO if missing
       # =========================
-      [ -f "$WIN_ISO" ] || wget -O "$WIN_ISO" https://github.com/kmille36/idx-windows-gui/releases/download/1.0/automic11.iso
+      [ -f "$WIN_ISO" ] || wget -O "$WIN_ISO" https://archive.org/download/tiny11_25H2/tiny11_25H2_Oct25.iso
 
       # =========================
-      # Download VirtIO ISO (~0.3GB)
+      # Download VirtIO drivers ISO if missing
       # =========================
       [ -f "$VIRTIO_ISO" ] || wget -O "$VIRTIO_ISO" https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
 
       # =========================
-      # Clone noVNC
+      # Clone noVNC if missing
       # =========================
       if [ ! -d "$NOVNC_DIR/.git" ]; then
         git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
@@ -74,19 +61,19 @@
       # Create or resize QCOW2 disk
       # =========================
       if [ ! -f "$RAW_DISK" ]; then
-        echo "Creating QCOW2 disk $DESIRED_QCOW2_SIZE..."
-        qemu-img create -f qcow2 "$RAW_DISK" $DESIRED_QCOW2_SIZE
+        echo "Creating QCOW2 disk $QCOW2_SIZE..."
+        qemu-img create -f qcow2 "$RAW_DISK" $QCOW2_SIZE
       else
         CURRENT_SIZE=$(qemu-img info --output=json "$RAW_DISK" | jq -r '.virtual-size')
-        DESIRED_BYTES=$(numfmt --from=iec $DESIRED_QCOW2_SIZE)
+        DESIRED_BYTES=$(numfmt --from=iec $QCOW2_SIZE)
         if [ "$CURRENT_SIZE" -lt "$DESIRED_BYTES" ]; then
-          echo "Resizing existing QCOW2 disk to $DESIRED_QCOW2_SIZE..."
-          qemu-img resize "$RAW_DISK" $DESIRED_QCOW2_SIZE
+          echo "Resizing existing QCOW2 disk to $QCOW2_SIZE..."
+          qemu-img resize "$RAW_DISK" $QCOW2_SIZE
         fi
       fi
 
       # =========================
-      # Delete OVMF_VARS if broken (UEFI boot fix)
+      # Fix OVMF_VARS nếu bị lỗi UEFI
       # =========================
       if grep -q "Boot0002" "$OVMF_VARS" 2>/dev/null; then
         echo "OVMF_VARS may be corrupted. Recreating..."
@@ -95,7 +82,7 @@
       fi
 
       # =========================
-      # Start QEMU
+      # Start QEMU (Tiny11 Lite, RAM 28GB, 8 cores)
       # =========================
       echo "Starting QEMU..."
       nohup qemu-system-x86_64 \
@@ -123,7 +110,7 @@
         > /tmp/qemu.log 2>&1 &
 
       # =========================
-      # Start noVNC
+      # Start noVNC on port 8888
       # =========================
       echo "Starting noVNC..."
       nohup "$NOVNC_DIR/utils/novnc_proxy" \
@@ -145,7 +132,7 @@
       if grep -q "trycloudflare.com" /tmp/cloudflared.log; then
         URL=$(grep -o "https://[a-z0-9.-]*trycloudflare.com" /tmp/cloudflared.log | head -n1)
         echo "========================================="
-        echo " 🌍 Tiny11 QEMU + noVNC ready:"
+        echo " 🌍 Tiny11 Lite QEMU + noVNC ready:"
         echo "     $URL/vnc.html"
         echo "     $URL/vnc.html" > /home/user/idx-windows-gui/noVNC-URL.txt
         echo "========================================="
