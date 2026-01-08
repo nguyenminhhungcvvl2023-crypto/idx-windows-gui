@@ -11,6 +11,7 @@
     pkgs.git
     pkgs.python3
     pkgs.jq
+    pkgs.numfmt
   ];
 
   idx.workspace.onStart = {
@@ -18,7 +19,7 @@
       set -e
 
       # =========================
-      # Cleanup one-time
+      # One-time cleanup
       # =========================
       if [ ! -f /home/user/.cleanup_done ]; then
         rm -rf /home/user/.gradle/* /home/user/.emu/* || true
@@ -42,7 +43,7 @@
       OVMF_CODE="$OVMF_DIR/OVMF_CODE.fd"
       OVMF_VARS="$OVMF_DIR/OVMF_VARS.fd"
 
-      DESIRED_QCOW2_SIZE=13G  # để tổng full ổ ~16GB
+      DESIRED_QCOW2_SIZE=13G  # QCOW2 + Tiny11 + ISO ≤16GB
 
       mkdir -p "$VM_DIR" "$OVMF_DIR"
 
@@ -85,6 +86,15 @@
       fi
 
       # =========================
+      # Delete OVMF_VARS if broken (UEFI boot fix)
+      # =========================
+      if grep -q "Boot0002" "$OVMF_VARS" 2>/dev/null; then
+        echo "OVMF_VARS may be corrupted. Recreating..."
+        rm -f "$OVMF_VARS"
+        cp "$OVMF_CODE" "$OVMF_VARS"
+      fi
+
+      # =========================
       # Start QEMU
       # =========================
       echo "Starting QEMU..."
@@ -99,7 +109,6 @@
         -vga virtio \
         -net nic,netdev=n0,model=virtio-net-pci \
         -netdev user,id=n0,hostfwd=tcp::3389-:3389 \
-        -boot c \
         -device virtio-serial-pci \
         -device virtio-rng-pci \
         -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
@@ -107,6 +116,7 @@
         -drive file="$RAW_DISK",format=qcow2,if=virtio \
         -cdrom "$WIN_ISO" \
         -drive file="$VIRTIO_ISO",media=cdrom,if=ide \
+        -boot order=d,once=d \
         -uuid e47ddb84-fb4d-46f9-b531-14bb15156336 \
         -vnc :0 \
         -display none \
@@ -135,7 +145,7 @@
       if grep -q "trycloudflare.com" /tmp/cloudflared.log; then
         URL=$(grep -o "https://[a-z0-9.-]*trycloudflare.com" /tmp/cloudflared.log | head -n1)
         echo "========================================="
-        echo " 🌍 Windows 11 QEMU + noVNC ready:"
+        echo " 🌍 Tiny11 QEMU + noVNC ready:"
         echo "     $URL/vnc.html"
         echo "     $URL/vnc.html" > /home/user/idx-windows-gui/noVNC-URL.txt
         echo "========================================="
