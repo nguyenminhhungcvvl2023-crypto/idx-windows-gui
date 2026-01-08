@@ -19,11 +19,24 @@
       set -e
 
       # =========================
+      # One-time cleanup
+      # =========================
+      if [ ! -f /home/user/.cleanup_done ]; then
+        rm -rf /home/user/.gradle/* /home/user/.emu/* || true
+        find /home/user -mindepth 1 -maxdepth 1 \
+          ! -name 'idx-windows-gui' \
+          ! -name '.cleanup_done' \
+          ! -name '.*' \
+          -exec rm -rf {} + || true
+        touch /home/user/.cleanup_done
+      fi
+
+      # =========================
       # Paths
       # =========================
       VM_DIR="$HOME/qemu"
       RAW_DISK="$VM_DIR/windows.qcow2"
-      WIN_ISO="$VM_DIR/tiny11_25H2_Oct25.iso"  # ISO 5.4GB
+      WIN_ISO="$VM_DIR/tiny11_25H2_Oct25.iso"  # ISO Tiny11 25H2 ~5,4GB
       VIRTIO_ISO="$VM_DIR/virtio-win.iso"
       NOVNC_DIR="$HOME/noVNC"
       OVMF_DIR="$VM_DIR/ovmf"
@@ -32,18 +45,23 @@
 
       mkdir -p "$VM_DIR" "$OVMF_DIR"
 
-      QCOW2_SIZE="9G"  # tổng ổ 16GB → QCOW2 nhỏ hơn ISO
+      QCOW2_SIZE="9G"  # tổng ổ 16GB → QCOW2 9GB, còn lại cho ISO & VirtIO
+
+      # =========================
+      # Download Tiny11 ISO if missing
+      # =========================
+      if [ ! -f "$WIN_ISO" ]; then
+        echo "Downloading Tiny11 25H2 ISO (~5,4GB)..."
+        wget -O "$WIN_ISO" https://archive.org/download/tiny11_25H2/tiny11_25H2_Oct25.iso
+      else
+        echo "Tiny11 ISO already exists, skipping download."
+      fi
 
       # =========================
       # Download OVMF firmware if missing
       # =========================
       [ -f "$OVMF_CODE" ] || wget -O "$OVMF_CODE" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
       [ -f "$OVMF_VARS" ] || wget -O "$OVMF_VARS" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
-
-      # =========================
-      # Download Tiny11 ISO if missing
-      # =========================
-      [ -f "$WIN_ISO" ] || wget -O "$WIN_ISO" https://archive.org/download/tiny11_25H2/tiny11_25H2_Oct25.iso
 
       # =========================
       # Download VirtIO drivers ISO if missing
@@ -73,15 +91,6 @@
       fi
 
       # =========================
-      # Fix OVMF_VARS nếu bị lỗi UEFI
-      # =========================
-      if grep -q "Boot0002" "$OVMF_VARS" 2>/dev/null; then
-        echo "OVMF_VARS may be corrupted. Recreating..."
-        rm -f "$OVMF_VARS"
-        cp "$OVMF_CODE" "$OVMF_VARS"
-      fi
-
-      # =========================
       # Start QEMU (Tiny11 Lite, RAM 28GB, 8 cores)
       # =========================
       echo "Starting QEMU..."
@@ -96,6 +105,7 @@
         -vga virtio \
         -net nic,netdev=n0,model=virtio-net-pci \
         -netdev user,id=n0,hostfwd=tcp::3389-:3389 \
+        -boot order=d,once=d \
         -device virtio-serial-pci \
         -device virtio-rng-pci \
         -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
@@ -103,7 +113,6 @@
         -drive file="$RAW_DISK",format=qcow2,if=virtio \
         -cdrom "$WIN_ISO" \
         -drive file="$VIRTIO_ISO",media=cdrom,if=ide \
-        -boot order=d,once=d \
         -uuid e47ddb84-fb4d-46f9-b531-14bb15156336 \
         -vnc :0 \
         -display none \
