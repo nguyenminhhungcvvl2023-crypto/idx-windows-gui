@@ -17,16 +17,12 @@
       set -e
 
       # =========================
-      # One-time cleanup
+      # CLEAN (DÙNG Ổ MỚI 100%)
       # =========================
-      echo "💥 Cleaning old workspace..."
-      rm -rf /home/user/.gradle/* /home/user/.emu/* || true
-      rm -rf /home/user/qemu/*
-      rm -rf /home/user/noVNC
-      echo "✅ Cleanup done"
+      rm -rf /home/user/qemu /home/user/noVNC || true
 
       # =========================
-      # Paths
+      # PATHS
       # =========================
       VM_DIR="$HOME/qemu"
       RAW_DISK="$VM_DIR/windows.qcow2"
@@ -41,105 +37,79 @@
       mkdir -p "$OVMF_DIR" "$VM_DIR"
 
       # =========================
-      # Download OVMF firmware
+      # OVMF (UEFI)
       # =========================
-      echo "Downloading OVMF firmware..."
       wget -O "$OVMF_CODE" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
       wget -O "$OVMF_VARS" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
 
       # =========================
-      # Download Windows ISO (Microsoft official)
+      # WINDOWS ISO (TINY11 – LINK BẠN ĐƯA)
       # =========================
-      echo "Downloading Windows ISO..."
-      curl -L -o "$WIN_ISO" "https://go.microsoft.com/fwlink/?linkid=2273506"
+      wget -O "$WIN_ISO" \
+        "https://taimienphi.vn/Ajax/uout.ashx?u=aHR0cHM6Ly9hcmNoaXZlLm9yZy9kb3dubG9hZC90aW55LTExLU5UREVWL3RpbnkxMSUyMGIxLmlzbw=="
 
       # =========================
-      # Download VirtIO ISO
+      # VIRTIO DRIVERS
       # =========================
-      echo "Downloading VirtIO drivers ISO..."
       wget -O "$VIRTIO_ISO" \
         https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
 
       # =========================
-      # Clone noVNC
+      # noVNC
       # =========================
-      echo "Cloning noVNC..."
       git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
 
       # =========================
-      # Create fresh QCOW2 disk
+      # CREATE NEW DISK (Ổ MỚI)
       # =========================
-      echo "Creating new QCOW2 disk..."
-      qemu-img create -f qcow2 "$RAW_DISK" 11G
+      qemu-img create -f qcow2 "$RAW_DISK" 7G
 
       # =========================
-      # Start QEMU (UEFI + VirtIO + KVM)
+      # START QEMU (28GB RAM)
       # =========================
-      echo "Starting QEMU..."
       nohup qemu-system-x86_64 \
         -enable-kvm \
-        -cpu host,+topoext,hv_relaxed,hv_spinlocks=0x1fff,hv-passthrough,+pae,+nx,kvm=on,+svm \
+        -cpu host \
         -smp 8,cores=8 \
-        -M q35,usb=on \
-        -device usb-tablet \
+        -M q35 \
         -m 28672 \
-        -device virtio-balloon-pci \
+        -device usb-tablet \
         -vga virtio \
         -net nic,netdev=n0,model=virtio-net-pci \
-        -netdev user,id=n0,hostfwd=tcp::3389-:3389 \
+        -netdev user,id=n0 \
         -boot d \
-        -device virtio-serial-pci \
-        -device virtio-rng-pci \
         -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
         -drive if=pflash,format=raw,file="$OVMF_VARS" \
         -drive file="$RAW_DISK",format=qcow2,if=virtio \
         -cdrom "$WIN_ISO" \
-        -drive file="$VIRTIO_ISO",media=cdrom,if=ide \
-        -uuid $(uuidgen) \
+        -drive file="$VIRTIO_ISO",media=cdrom \
         -vnc :0 \
         -display none \
         > /tmp/qemu.log 2>&1 &
 
       # =========================
-      # Start noVNC
+      # START noVNC
       # =========================
-      echo "Starting noVNC..."
       nohup "$NOVNC_DIR/utils/novnc_proxy" \
         --vnc 127.0.0.1:5900 \
         --listen 8888 \
         > /tmp/novnc.log 2>&1 &
 
       # =========================
-      # Start Cloudflared tunnel
+      # START CLOUDFLARED
       # =========================
-      echo "Starting Cloudflared tunnel..."
       nohup cloudflared tunnel \
         --no-autoupdate \
         --url http://localhost:8888 \
         > /tmp/cloudflared.log 2>&1 &
 
       sleep 10
-
-      if grep -q "trycloudflare.com" /tmp/cloudflared.log; then
-        URL=$(grep -o "https://[a-z0-9.-]*trycloudflare.com" /tmp/cloudflared.log | head -n1)
-        echo "========================================="
-        echo " 🌍 Windows 11 QEMU + noVNC ready:"
-        echo "     $URL/vnc.html"
-        echo "     $URL/vnc.html" > /home/user/idx-windows-gui/noVNC-URL.txt
-        echo "========================================="
-      else
-        echo "❌ Cloudflared tunnel failed"
-      fi
+      grep -o "https://.*trycloudflare.com" /tmp/cloudflared.log | head -n1 > /home/user/noVNC-URL.txt
 
       # =========================
-      # Keep workspace alive
+      # KEEP ALIVE
       # =========================
-      elapsed=0
-      while true; do
-        echo "Time elapsed: $elapsed min"
-        ((elapsed++))
-        sleep 60
-      done
+      while true; do sleep 60; done
     '';
   };
 
@@ -148,10 +118,7 @@
     previews = {
       qemu = {
         manager = "web";
-        command = [
-          "bash" "-lc"
-          "echo 'noVNC running on port 8888'"
-        ];
+        command = [ "bash" "-lc" "echo 'noVNC running on port 8888'" ];
       };
       terminal = {
         manager = "web";
