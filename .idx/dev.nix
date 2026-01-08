@@ -69,7 +69,7 @@
       # Create fresh QCOW2 disk
       # =========================
       echo "Creating new QCOW2 disk..."
-      qemu-img create -f qcow2 "$RAW_DISK" 11G
+      qemu-img create -f qcow2 "$RAW_DISK" 6G
 
       # =========================
       # Start QEMU (UEFI + VirtIO + KVM)
