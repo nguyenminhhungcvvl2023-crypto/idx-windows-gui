@@ -17,19 +17,6 @@
       set -e
 
       # =========================
-      # Cleanup old workspace & QCOW2
-      # =========================
-      if [ ! -f /home/user/.cleanup_done ]; then
-        rm -rf /home/user/.gradle/* /home/user/.emu/* || true
-        find /home/user -mindepth 1 -maxdepth 1 \
-          ! -name 'idx-windows-gui' \
-          ! -name '.cleanup_done' \
-          ! -name '.*' \
-          -exec rm -rf {} + || true
-        touch /home/user/.cleanup_done
-      fi
-
-      # =========================
       # Paths
       # =========================
       VM_DIR="$HOME/qemu"
@@ -45,19 +32,19 @@
       mkdir -p "$OVMF_DIR" "$VM_DIR"
 
       # =========================
+      # Full cleanup
+      # =========================
+      echo "💥 Cleaning old workspace..."
+      rm -rf "$VM_DIR"/*
+      rm -rf "$NOVNC_DIR"
+      echo "✅ Cleanup done"
+
+      # =========================
       # Download OVMF firmware
       # =========================
-      if [ ! -f "$OVMF_CODE" ]; then
-        echo "Downloading OVMF_CODE.fd..."
-        wget -O "$OVMF_CODE" \
-          https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
-      fi
-
-      if [ ! -f "$OVMF_VARS" ]; then
-        echo "Downloading OVMF_VARS.fd..."
-        wget -O "$OVMF_VARS" \
-          https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
-      fi
+      echo "Downloading OVMF firmware..."
+      wget -O "$OVMF_CODE" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
+      wget -O "$OVMF_VARS" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
 
       # =========================
       # Download Windows ISO (Microsoft)
@@ -68,34 +55,24 @@
       # =========================
       # Download VirtIO drivers ISO
       # =========================
-      if [ ! -f "$VIRTIO_ISO" ]; then
-        echo "Downloading VirtIO drivers ISO..."
-        wget -O "$VIRTIO_ISO" \
-          https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
-      fi
+      echo "Downloading VirtIO drivers ISO..."
+      wget -O "$VIRTIO_ISO" \
+        https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
 
       # =========================
-      # Clone noVNC if missing
+      # Clone noVNC
       # =========================
-      if [ ! -d "$NOVNC_DIR/.git" ]; then
-        echo "Cloning noVNC..."
-        mkdir -p "$NOVNC_DIR"
-        git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
-      fi
+      echo "Cloning noVNC..."
+      git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
 
       # =========================
-      # Remove old QCOW2 and create new disk
+      # Create fresh QCOW2 disk
       # =========================
-      if [ -f "$RAW_DISK" ]; then
-        echo "Removing old QCOW2 disk..."
-        rm -f "$RAW_DISK"
-      fi
-
       echo "Creating new QCOW2 disk..."
-      qemu-img create -f qcow2 "$RAW_DISK" 7G
+      qemu-img create -f qcow2 "$RAW_DISK" 11G
 
       # =========================
-      # Start QEMU (KVM + VirtIO + UEFI)
+      # Start QEMU (UEFI + VirtIO + KVM)
       # =========================
       echo "Starting QEMU..."
       nohup qemu-system-x86_64 \
@@ -109,7 +86,7 @@
         -vga virtio \
         -net nic,netdev=n0,model=virtio-net-pci \
         -netdev user,id=n0,hostfwd=tcp::3389-:3389 \
-        -boot c \
+        -boot d \
         -device virtio-serial-pci \
         -device virtio-rng-pci \
         -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
@@ -117,7 +94,7 @@
         -drive file="$RAW_DISK",format=qcow2,if=virtio \
         -cdrom "$WIN_ISO" \
         -drive file="$VIRTIO_ISO",media=cdrom,if=ide \
-        -uuid e47ddb84-fb4d-46f9-b531-14bb15156336 \
+        -uuid $(uuidgen) \
         -vnc :0 \
         -display none \
         > /tmp/qemu.log 2>&1 &
