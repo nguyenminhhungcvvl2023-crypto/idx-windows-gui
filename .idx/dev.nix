@@ -17,6 +17,15 @@
       set -e
 
       # =========================
+      # One-time cleanup
+      # =========================
+      echo "💥 Cleaning old workspace..."
+      rm -rf /home/user/.gradle/* /home/user/.emu/* || true
+      rm -rf /home/user/qemu/*
+      rm -rf /home/user/noVNC
+      echo "✅ Cleanup done"
+
+      # =========================
       # Paths
       # =========================
       VM_DIR="$HOME/qemu"
@@ -25,19 +34,11 @@
       VIRTIO_ISO="$VM_DIR/virtio-win.iso"
       NOVNC_DIR="$HOME/noVNC"
 
-      OVMF_DIR="$HOME/qemu/ovmf"
+      OVMF_DIR="$VM_DIR/ovmf"
       OVMF_CODE="$OVMF_DIR/OVMF_CODE.fd"
       OVMF_VARS="$OVMF_DIR/OVMF_VARS.fd"
 
       mkdir -p "$OVMF_DIR" "$VM_DIR"
-
-      # =========================
-      # Full cleanup
-      # =========================
-      echo "💥 Cleaning old workspace..."
-      rm -rf "$VM_DIR"/*
-      rm -rf "$NOVNC_DIR"
-      echo "✅ Cleanup done"
 
       # =========================
       # Download OVMF firmware
@@ -47,13 +48,13 @@
       wget -O "$OVMF_VARS" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
 
       # =========================
-      # Download Windows ISO (Microsoft)
+      # Download Windows ISO (Microsoft official)
       # =========================
-      echo "Downloading Windows ISO from Microsoft..."
-      wget -O "$WIN_ISO" "https://go.microsoft.com/fwlink/?linkid=2273506"
+      echo "Downloading Windows ISO..."
+      curl -L -o "$WIN_ISO" "https://go.microsoft.com/fwlink/?linkid=2273506"
 
       # =========================
-      # Download VirtIO drivers ISO
+      # Download VirtIO ISO
       # =========================
       echo "Downloading VirtIO drivers ISO..."
       wget -O "$VIRTIO_ISO" \
@@ -69,7 +70,7 @@
       # Create fresh QCOW2 disk
       # =========================
       echo "Creating new QCOW2 disk..."
-      qemu-img create -f qcow2 "$RAW_DISK" 6G
+      qemu-img create -f qcow2 "$RAW_DISK" 11G
 
       # =========================
       # Start QEMU (UEFI + VirtIO + KVM)
@@ -100,7 +101,7 @@
         > /tmp/qemu.log 2>&1 &
 
       # =========================
-      # Start noVNC on port 8888
+      # Start noVNC
       # =========================
       echo "Starting noVNC..."
       nohup "$NOVNC_DIR/utils/novnc_proxy" \
