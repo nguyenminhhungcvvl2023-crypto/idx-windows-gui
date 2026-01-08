@@ -17,7 +17,7 @@
       set -e
 
       # =========================
-      # One-time cleanup
+      # Cleanup old workspace & QCOW2
       # =========================
       if [ ! -f /home/user/.cleanup_done ]; then
         rm -rf /home/user/.gradle/* /home/user/.emu/* || true
@@ -32,75 +32,46 @@
       # =========================
       # Paths
       # =========================
-
-      SKIP_QCOW2_DOWNLOAD=0
-
       VM_DIR="$HOME/qemu"
       RAW_DISK="$VM_DIR/windows.qcow2"
-      WIN_ISO="$VM_DIR/automic11.iso"
+      WIN_ISO="$VM_DIR/windows.iso"
       VIRTIO_ISO="$VM_DIR/virtio-win.iso"
       NOVNC_DIR="$HOME/noVNC"
 
-     
-     OVMF_DIR="$HOME/qemu/ovmf"
-     OVMF_CODE="$OVMF_DIR/OVMF_CODE.fd"
-     OVMF_VARS="$OVMF_DIR/OVMF_VARS.fd"
+      OVMF_DIR="$HOME/qemu/ovmf"
+      OVMF_CODE="$OVMF_DIR/OVMF_CODE.fd"
+      OVMF_VARS="$OVMF_DIR/OVMF_VARS.fd"
 
-     mkdir -p "$OVMF_DIR"
+      mkdir -p "$OVMF_DIR" "$VM_DIR"
 
-     # =========================
-     # Download OVMF firmware if missing
-     # =========================
-     if [ ! -f "$OVMF_CODE" ]; then
+      # =========================
+      # Download OVMF firmware
+      # =========================
+      if [ ! -f "$OVMF_CODE" ]; then
         echo "Downloading OVMF_CODE.fd..."
         wget -O "$OVMF_CODE" \
           https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
-        else
-          echo "OVMF_CODE.fd already exists, skipping download."
-     fi
+      fi
 
-     if [ ! -f "$OVMF_VARS" ]; then
-       echo "Downloading OVMF_VARS.fd..."
-       wget -O "$OVMF_VARS" \
-         https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
-     else
-       echo "OVMF_VARS.fd already exists, skipping download."
-     fi
-
-      mkdir -p "$VM_DIR"
-
-      if [ "$SKIP_QCOW2_DOWNLOAD" -ne 1 ]; then
-  if [ ! -f "$RAW_DISK" ]; then
-    echo "Downloading QCOW2 disk..."
-    wget -O "$RAW_DISK" https://bit.ly/45hceMn
-  else
-    echo "QCOW2 disk already exists, skipping download."
-  fi
-else
-  echo "SKIP_QCOW2_DOWNLOAD=1 → QCOW2 logic skipped."
-fi
-      
-
-      # =========================
-      # Download Windows ISO if missing
-      # =========================
-      if [ ! -f "$WIN_ISO" ]; then
-        echo "Downloading Windows ISO..."
-        wget -O "$WIN_ISO" \
-          https://taimienphi.vn/Ajax/uout.ashx?u=aHR0cHM6Ly9hcmNoaXZlLm9yZy9kb3dubG9hZC90aW55LTExLU5UREVWL3RpbnkxMSUyMGIxLmlzbw==
-      else
-        echo "Windows ISO already exists, skipping download."
+      if [ ! -f "$OVMF_VARS" ]; then
+        echo "Downloading OVMF_VARS.fd..."
+        wget -O "$OVMF_VARS" \
+          https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
       fi
 
       # =========================
-      # Download VirtIO drivers ISO if missing
+      # Download Windows ISO (Microsoft)
+      # =========================
+      echo "Downloading Windows ISO from Microsoft..."
+      wget -O "$WIN_ISO" "https://go.microsoft.com/fwlink/?linkid=2273506"
+
+      # =========================
+      # Download VirtIO drivers ISO
       # =========================
       if [ ! -f "$VIRTIO_ISO" ]; then
         echo "Downloading VirtIO drivers ISO..."
         wget -O "$VIRTIO_ISO" \
           https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
-      else
-        echo "VirtIO ISO already exists, skipping download."
       fi
 
       # =========================
@@ -110,48 +81,46 @@ fi
         echo "Cloning noVNC..."
         mkdir -p "$NOVNC_DIR"
         git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
-      else
-        echo "noVNC already exists, skipping clone."
       fi
 
       # =========================
-      # Create QCOW2 disk if missing
+      # Remove old QCOW2 and create new disk
       # =========================
-      if [ ! -f "$RAW_DISK" ]; then
-        echo "Creating QCOW2 disk..."
-        qemu-img create -f qcow2 "$RAW_DISK" 9G
-      else
-        echo "QCOW2 disk already exists, skipping creation."
+      if [ -f "$RAW_DISK" ]; then
+        echo "Removing old QCOW2 disk..."
+        rm -f "$RAW_DISK"
       fi
+
+      echo "Creating new QCOW2 disk..."
+      qemu-img create -f qcow2 "$RAW_DISK" 7G
 
       # =========================
       # Start QEMU (KVM + VirtIO + UEFI)
       # =========================
       echo "Starting QEMU..."
       nohup qemu-system-x86_64 \
-  -enable-kvm \
-  -cpu host,+topoext,hv_relaxed,hv_spinlocks=0x1fff,hv-passthrough,+pae,+nx,kvm=on,+svm \
-  -smp 8,cores=8 \
-  -M q35,usb=on \
-  -device usb-tablet \
-  -m 28672 \
-  -device virtio-balloon-pci \
-  -vga virtio \
-  -net nic,netdev=n0,model=virtio-net-pci \
-  -netdev user,id=n0,hostfwd=tcp::3389-:3389 \
-  -boot c \
-  -device virtio-serial-pci \
-  -device virtio-rng-pci \
-  -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
-  -drive if=pflash,format=raw,file="$OVMF_VARS" \
-  -drive file="$RAW_DISK",format=qcow2,if=virtio \
-  -cdrom "$WIN_ISO" \
-  -drive file="$VIRTIO_ISO",media=cdrom,if=ide \
-  -uuid e47ddb84-fb4d-46f9-b531-14bb15156336 \
-  -vnc :0 \
-  -display none \
-  > /tmp/qemu.log 2>&1 &
-
+        -enable-kvm \
+        -cpu host,+topoext,hv_relaxed,hv_spinlocks=0x1fff,hv-passthrough,+pae,+nx,kvm=on,+svm \
+        -smp 8,cores=8 \
+        -M q35,usb=on \
+        -device usb-tablet \
+        -m 28672 \
+        -device virtio-balloon-pci \
+        -vga virtio \
+        -net nic,netdev=n0,model=virtio-net-pci \
+        -netdev user,id=n0,hostfwd=tcp::3389-:3389 \
+        -boot c \
+        -device virtio-serial-pci \
+        -device virtio-rng-pci \
+        -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+        -drive if=pflash,format=raw,file="$OVMF_VARS" \
+        -drive file="$RAW_DISK",format=qcow2,if=virtio \
+        -cdrom "$WIN_ISO" \
+        -drive file="$VIRTIO_ISO",media=cdrom,if=ide \
+        -uuid e47ddb84-fb4d-46f9-b531-14bb15156336 \
+        -vnc :0 \
+        -display none \
+        > /tmp/qemu.log 2>&1 &
 
       # =========================
       # Start noVNC on port 8888
