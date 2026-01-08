@@ -46,7 +46,7 @@
       # WINDOWS ISO (TINY11 – LINK BẠN ĐƯA)
       # =========================
       wget -O "$WIN_ISO" \
-        "https://taimienphi.vn/Ajax/uout.ashx?u=aHR0cHM6Ly9hcmNoaXZlLm9yZy9kb3dubG9hZC90aW55LTExLU5UREVWL3RpbnkxMSUyMGIxLmlzbw=="
+        "https://archive.org/download/tiny-11-NTDEV/tiny11%20b1.iso"
 
       # =========================
       # VIRTIO DRIVERS
