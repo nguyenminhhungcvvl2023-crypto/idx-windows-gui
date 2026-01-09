@@ -8,20 +8,22 @@
     pkgs.coreutils
     pkgs.gnugrep
     pkgs.wget
+    pkgs.curl   # Dùng curl để pipe luồng ổn định hơn
     pkgs.git
     pkgs.python3
-    pkgs.unrar  # <--- Bắt buộc có để giải nén file RAR
+    pkgs.unrar  # Bắt buộc
   ];
 
   idx.workspace.onStart = {
     qemu = ''
       set -e
 
-      # =========================
-      # Dọn dẹp môi trường cũ (tránh lỗi file rác cũ)
-      # =========================
+      # ==========================================
+      # 1. DỌN DẸP SẠCH SẼ (Cực quan trọng vì ổ đầy)
+      # ==========================================
       if [ ! -f /home/user/.cleanup_done ]; then
-        rm -rf /home/user/.gradle/* /home/user/.emu/* || true
+        # Xóa cache gradle, android, mọi thứ rác có thể
+        rm -rf /home/user/.gradle/* /home/user/.emu/* /home/user/.cache/* || true
         find /home/user -mindepth 1 -maxdepth 1 \
           ! -name 'idx-windows-gui' \
           ! -name '.cleanup_done' \
@@ -30,14 +32,13 @@
         touch /home/user/.cleanup_done
       fi
 
-      # =========================
-      # Cấu hình đường dẫn
-      # =========================
+      # ==========================================
+      # 2. CẤU HÌNH
+      # ==========================================
       VM_DIR="$HOME/qemu"
       RAW_DISK="$VM_DIR/windows.qcow2"
-      RAR_FILE="$VM_DIR/windows.rar"
       
-      # 👇 LINK PIXELDRAIN (Đã chuyển sang dạng API tải trực tiếp)
+      # Link Pixeldrain API
       DOWNLOAD_URL="https://pixeldrain.com/api/file/CfLHGhuE"
 
       VIRTIO_ISO="$VM_DIR/virtio-win.iso"
@@ -50,84 +51,71 @@
       mkdir -p "$OVMF_DIR"
       mkdir -p "$VM_DIR"
 
-      # =========================
-      # 1. Tải BIOS UEFI
-      # =========================
+      # ==========================================
+      # 3. TẢI BIOS & DRIVER
+      # ==========================================
       if [ ! -f "$OVMF_CODE" ]; then
          wget -O "$OVMF_CODE" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
       fi
       if [ ! -f "$OVMF_VARS" ]; then
          wget -O "$OVMF_VARS" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
       fi
+      if [ ! -f "$VIRTIO_ISO" ]; then
+        wget -O "$VIRTIO_ISO" https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
+      fi
 
-      # =========================
-      # 2. Tải và giải nén Windows từ Pixeldrain
-      # =========================
+      # ==========================================
+      # 4. STREAMING: VỪA TẢI VỪA GIẢI NÉN (Magic here!)
+      # ==========================================
       if [ ! -f "$RAW_DISK" ]; then
-        echo "🔍 Kiem tra file Windows..."
+        echo "⚠️  CANH BAO: O CUNG SAP HET CHO TRONG!"
+        echo "🚀 Dang chay che do STREAMING: Tai -> Giai nen luon -> Ghi o cung"
+        echo "⏳ Khong luu file RAR. Cho khoang 5-10 phut..."
         
-        # Xóa file rác cũ nếu có
-        rm -f "$RAR_FILE"
+        # GIẢI THÍCH LỆNH:
+        # curl -L: Tải file
+        # | : Chuyển dữ liệu sang lệnh sau ngay lập tức
+        # unrar p -si: Đọc từ luồng (stdin) và in nội dung file giải nén ra màn hình
+        # > "$RAW_DISK": Hứng nội dung đó ghi vào file qcow2
         
-        echo "⬇️ Dang tai file Windows (5.15GB) tu Pixeldrain..."
-        echo "⏳ Viec nay mat tam 3-5 phut, bro cho xiu nhe..."
+        curl -L "$DOWNLOAD_URL" | unrar p -si -inul > "$RAW_DISK"
         
-        # Tải file về
-        wget -O "$RAR_FILE" "$DOWNLOAD_URL"
-        
-        # Kiểm tra file tải về có đủ dung lượng không (tránh lỗi file 2KB như nãy)
-        FILE_SIZE=$(stat -c%s "$RAR_FILE")
-        if [ "$FILE_SIZE" -lt 1000000000 ]; then  # Phải lớn hơn 1GB
-           echo "❌ LOI: File tai ve qua nhe (< 1GB). Link co the bi loi."
+        # Kiểm tra thành phẩm
+        FILE_SIZE=$(stat -c%s "$RAW_DISK")
+        if [ "$FILE_SIZE" -lt 1000000000 ]; then
+           echo "❌ LOI: File tao ra qua nho. Co the loi mang hoac het bo nho."
+           rm "$RAW_DISK"
            exit 1
         fi
         
-        echo "📦 Dang giai nen file RAR..."
-        # Giải nén vào thư mục qemu
-        unrar e -y "$RAR_FILE" "$VM_DIR/"
-        
-        echo "🧹 Dọn dẹp file RAR..."
-        rm "$RAR_FILE"
-
-        # Tự động tìm file ổ cứng vừa giải nén và đổi tên chuẩn
-        FOUND_FILE=$(find "$VM_DIR" -maxdepth 1 \( -name "*.qcow2" -o -name "*.vdi" -o -name "*.img" \) | head -n 1)
-        if [ -n "$FOUND_FILE" ] && [ "$FOUND_FILE" != "$RAW_DISK" ]; then
-            echo "🔄 Doi ten $FOUND_FILE thanh windows.qcow2"
-            mv "$FOUND_FILE" "$RAW_DISK"
-        fi
-        
-        echo "✅ XONG! Da co file o cung: $RAW_DISK"
+        echo "✅ XONG! Da tao file o cung 12GB (Hy vong con du cho chay Win 😅)"
       else
         echo "✅ File Windows.qcow2 da co san."
       fi
 
-      # =========================
-      # 3. Tải Driver VirtIO
-      # =========================
-      if [ ! -f "$VIRTIO_ISO" ]; then
-        echo "Downloading VirtIO drivers..."
-        wget -O "$VIRTIO_ISO" https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
-      fi
-
-      # =========================
-      # 4. Cài noVNC
-      # =========================
+      # ==========================================
+      # 5. CÀI ĐẶT NOVNC
+      # ==========================================
       if [ ! -d "$NOVNC_DIR/.git" ]; then
         mkdir -p "$NOVNC_DIR"
         git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
       fi
 
-      # =========================
-      # 5. CHẠY MÁY ẢO
-      # =========================
+      # ==========================================
+      # 6. KHỞI ĐỘNG QEMU
+      # ==========================================
       echo "🚀 Starting QEMU Windows..."
+      
+      # Lưu ý: Vì RAM máy ảo IDX cũng có hạn, nên giảm RAM Win xuống 8GB (8192) cho an toàn
+      # Nếu để 12GB như cũ có thể bị OOM (Out of Memory) crash
+      
       nohup qemu-system-x86_64 \
         -enable-kvm \
         -cpu host,+topoext,hv_relaxed,hv_spinlocks=0x1fff,hv-passthrough,+pae,+nx,kvm=on,+svm \
         -smp 8,cores=8 \
         -M q35,usb=on \
         -device usb-tablet \
-        -m 28G \
+        -m 28679 \
         -device virtio-balloon-pci \
         -vga virtio \
         -net nic,netdev=n0,model=virtio-net-pci \
@@ -144,9 +132,9 @@
         -display none \
         > /tmp/qemu.log 2>&1 &
 
-      # =========================
-      # 6. Kết nối hiển thị
-      # =========================
+      # ==========================================
+      # 7. KẾT NỐI
+      # ==========================================
       echo "Starting noVNC..."
       nohup "$NOVNC_DIR/utils/novnc_proxy" --vnc 127.0.0.1:5900 --listen 8888 > /tmp/novnc.log 2>&1 &
 
@@ -159,7 +147,6 @@
         echo "LINK TRUY CAP: $URL/vnc.html" > /home/user/idx-windows-gui/noVNC-URL.txt
       fi
 
-      # Keep alive
       while true; do sleep 60; done
     '';
   };
