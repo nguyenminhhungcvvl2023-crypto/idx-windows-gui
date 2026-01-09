@@ -10,6 +10,7 @@
     pkgs.wget
     pkgs.git
     pkgs.python3
+    pkgs.unrar  # <--- QUAN TRỌNG: Thêm cái này để giải nén file RAR
   ];
 
   idx.workspace.onStart = {
@@ -17,7 +18,7 @@
       set -e
 
       # =========================
-      # Cleanup (one-time)
+      # Dọn dẹp môi trường cũ
       # =========================
       if [ ! -f /home/user/.cleanup_done ]; then
         rm -rf /home/user/.gradle/* /home/user/.emu/* || true
@@ -30,102 +31,135 @@
       fi
 
       # =========================
-      # Paths
+      # Cấu hình đường dẫn
       # =========================
       VM_DIR="$HOME/qemu"
       RAW_DISK="$VM_DIR/windows.qcow2"
-      WIN_ISO="$VM_DIR/windows.iso"
+      RAR_FILE="$VM_DIR/windows.rar"
+      
+      # Link tải file RAR của bro
+      DOWNLOAD_URL="https://drive.usercontent.google.com/download?id=1ohHQojU1jN0yDDt3piK1T501IfhVVweC&export=download&authuser=0"
+
       VIRTIO_ISO="$VM_DIR/virtio-win.iso"
       NOVNC_DIR="$HOME/noVNC"
-
-      OVMF_DIR="$VM_DIR/ovmf"
+      
+      OVMF_DIR="$HOME/qemu/ovmf"
       OVMF_CODE="$OVMF_DIR/OVMF_CODE.fd"
       OVMF_VARS="$OVMF_DIR/OVMF_VARS.fd"
 
-      mkdir -p "$VM_DIR" "$OVMF_DIR"
+      mkdir -p "$OVMF_DIR"
+      mkdir -p "$VM_DIR"
 
       # =========================
-      # OVMF
+      # 1. Tải BIOS UEFI
       # =========================
-      [ -f "$OVMF_CODE" ] || wget -O "$OVMF_CODE" \
-        https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
-
-      [ -f "$OVMF_VARS" ] || wget -O "$OVMF_VARS" \
-        https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
-
-      # =========================
-      # Windows ISO (MỚI)
-      # =========================
-      if [ ! -f "$WIN_ISO" ]; then
-        wget -O "$WIN_ISO" \
-          https://archive.org/download/tiny-11-NTDEV/tiny11%20b1.iso
+      if [ ! -f "$OVMF_CODE" ]; then
+         wget -O "$OVMF_CODE" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_CODE.fd
+      fi
+      if [ ! -f "$OVMF_VARS" ]; then
+         wget -O "$OVMF_VARS" https://qemu.weilnetz.de/test/ovmf/usr/share/OVMF/OVMF_VARS.fd
       fi
 
       # =========================
-      # VirtIO ISO
+      # 2. Xử lý tải và giải nén Windows RAR
+      # =========================
+      if [ ! -f "$RAW_DISK" ]; then
+        echo "🔍 Kiem tra file Windows..."
+        
+        echo "⬇️ Dang tai file RAR tu Google Drive..."
+        wget -O "$RAR_FILE" "$DOWNLOAD_URL"
+        
+        echo "📦 Dang giai nen file RAR..."
+        # Giải nén vào thư mục qemu, -y là đồng ý đè nếu trùng
+        unrar e -y "$RAR_FILE" "$VM_DIR/"
+        
+        echo "🧹 Dang xoa file RAR rac..."
+        rm "$RAR_FILE"
+
+        # Tự động tìm file .qcow2 vừa giải nén và đổi tên chuẩn
+        # (Đề phòng file bên trong tên là abcxyz.qcow2)
+        FOUND_FILE=$(find "$VM_DIR" -maxdepth 1 -name "*.qcow2" | head -n 1)
+        if [ -n "$FOUND_FILE" ] && [ "$FOUND_FILE" != "$RAW_DISK" ]; then
+            echo "🔄 Doi ten $FOUND_FILE thanh windows.qcow2"
+            mv "$FOUND_FILE" "$RAW_DISK"
+        fi
+        
+        echo "✅ Da co file o cung: $RAW_DISK"
+      else
+        echo "✅ File Windows.qcow2 da co san, bo qua tai."
+      fi
+
+      # =========================
+      # 3. Tải Driver VirtIO (Để nhận mạng/chuột)
       # =========================
       if [ ! -f "$VIRTIO_ISO" ]; then
-        wget -O "$VIRTIO_ISO" \
-          https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
+        echo "Downloading VirtIO drivers..."
+        wget -O "$VIRTIO_ISO" https://github.com/kmille36/idx-windows-gui/releases/download/1.0/virtio-win-0.1.271.iso
       fi
 
       # =========================
-      # noVNC
+      # 4. Cài noVNC
       # =========================
       if [ ! -d "$NOVNC_DIR/.git" ]; then
+        mkdir -p "$NOVNC_DIR"
         git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"
       fi
 
       # =========================
-      # TẠO Ổ CỨNG MỚI 100%
+      # 5. CHẠY MÁY ẢO (BOOT THẲNG)
       # =========================
-      if [ ! -f "$RAW_DISK" ]; then
-        qemu-img create -f qcow2 "$RAW_DISK" 7G
-      fi
-
-      # =========================
-      # START QEMU
-      # =========================
+      echo "🚀 Starting QEMU Windows..."
       nohup qemu-system-x86_64 \
         -enable-kvm \
         -cpu host,+topoext,hv_relaxed,hv_spinlocks=0x1fff,hv-passthrough,+pae,+nx,kvm=on,+svm \
         -smp 8,cores=8 \
         -M q35,usb=on \
         -device usb-tablet \
-        -m 28672 \
+        -m 28G \
         -device virtio-balloon-pci \
         -vga virtio \
         -net nic,netdev=n0,model=virtio-net-pci \
         -netdev user,id=n0,hostfwd=tcp::3389-:3389 \
-        -boot d \
+        -boot c \
         -device virtio-serial-pci \
         -device virtio-rng-pci \
         -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
         -drive if=pflash,format=raw,file="$OVMF_VARS" \
         -drive file="$RAW_DISK",format=qcow2,if=virtio \
-        -cdrom "$WIN_ISO" \
         -drive file="$VIRTIO_ISO",media=cdrom,if=ide \
+        -uuid e47ddb84-fb4d-46f9-b531-14bb15156336 \
         -vnc :0 \
         -display none \
         > /tmp/qemu.log 2>&1 &
 
       # =========================
-      # noVNC
+      # 6. Kết nối hiển thị
       # =========================
-      nohup "$NOVNC_DIR/utils/novnc_proxy" \
-        --vnc 127.0.0.1:5900 \
-        --listen 8888 \
-        > /tmp/novnc.log 2>&1 &
+      echo "Starting noVNC..."
+      nohup "$NOVNC_DIR/utils/novnc_proxy" --vnc 127.0.0.1:5900 --listen 8888 > /tmp/novnc.log 2>&1 &
 
-      # =========================
-      # Cloudflare
-      # =========================
-      nohup cloudflared tunnel \
-        --no-autoupdate \
-        --url http://localhost:8888 \
-        > /tmp/cloudflared.log 2>&1 &
+      echo "Starting Cloudflared..."
+      nohup cloudflared tunnel --no-autoupdate --url http://localhost:8888 > /tmp/cloudflared.log 2>&1 &
 
+      sleep 10
+      if grep -q "trycloudflare.com" /tmp/cloudflared.log; then
+        URL=$(grep -o "https://[a-z0-9.-]*trycloudflare.com" /tmp/cloudflared.log | head -n1)
+        echo "LINK TRUY CAP: $URL/vnc.html" > /home/user/idx-windows-gui/noVNC-URL.txt
+      fi
+
+      # Keep alive
       while true; do sleep 60; done
     '';
+  };
+  
+  # Cấu hình Preview để xem log
+  idx.previews = {
+    enable = true;
+    previews = {
+      qemu_status = {
+        manager = "web";
+        command = [ "bash" "-lc" "tail -f /tmp/qemu.log" ];
+      };
+    };
   };
 }
